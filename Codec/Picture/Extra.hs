@@ -14,6 +14,7 @@
 module Codec.Picture.Extra
   ( -- * Scaling
     scaleBilinear
+  , scaleBilinear8And16
     -- * Cropping
   , crop
     -- * Rotation
@@ -28,60 +29,36 @@ module Codec.Picture.Extra
 where
 
 import Codec.Picture
-import Control.Monad.ST
-import qualified Codec.Picture.Types as M
 import Data.List (foldl1')
+import qualified Codec.Picture.Extra.Scaler8 as Scaler8
+import qualified Codec.Picture.Extra.Scaler as Scaler
 
 -- | Scale an image using bi-linear interpolation. This is specialized to
--- 'PixelRGB8' only for speed (polymorphic version is easily written, but
--- it's more than twice as slow).
+-- 'PixelRGB8' only for speed. For a (near) generic implementation,
+-- see 'scaleBilinear8And16'.
 
 scaleBilinear
   :: Int               -- ^ Desired width
   -> Int               -- ^ Desired height
   -> Image PixelRGB8   -- ^ Original image
   -> Image PixelRGB8   -- ^ Scaled image
-scaleBilinear width height img@Image {..} = runST $ do
-  mimg <- M.newMutableImage width height
-  let sx, sy :: Float
-      sx = fromIntegral imageWidth  / fromIntegral width
-      sy = fromIntegral imageHeight / fromIntegral height
-      go x' y'
-        | x' >= width = go 0 (y' + 1)
-        | y' >= height = M.unsafeFreezeImage mimg
-        | otherwise = do
-            let xf = fromIntegral x' * sx
-                yf = fromIntegral y' * sy
-                x, y :: Int
-                x  = floor xf
-                y  = floor yf
-                δx = xf - fromIntegral x
-                δy = yf - fromIntegral y
-                pixelAt' i j =
-                  if i >= imageWidth || j >= imageHeight
-                    then PixelRGB8 0 0 0
-                    else pixelAt img i j
-            writePixel mimg x' y' $
-              mulp (pixelAt' x y) ((1 - δx) * (1 - δy)) `addp`
-              mulp (pixelAt' (x + 1) y) (δx * (1 - δy)) `addp`
-              mulp (pixelAt' x (y + 1)) ((1 - δx) * δy) `addp`
-              mulp (pixelAt' (x + 1) (y + 1)) (δx * δy)
-            go (x' + 1) y'
-  go 0 0
+scaleBilinear = Scaler8.scaleBilinear
 
-mulp :: PixelRGB8 -> Float -> PixelRGB8
-mulp pixel x = colorMap (floor . (* x) . fromIntegral) pixel
-{-# INLINE mulp #-}
+-- | Scale an image using bi-linear interpolation. This is internally specialized to
+-- 'PixelRGB8' and 'PixelRGB16' (only for speed) before exposing a generic API.
+--
+-- 'PixelF', 'PixelRGBF' are not supported yet, hence we return a 'Left'.
+--
+-- For all other PixelTypes, we convert to 'PixelRGB8' or 'PixelRGB16' based on
+-- the graph here: https://github.com/Twinside/Juicy.Pixels/blob/master/docimages/pixelgraph.svg
 
-addp :: PixelRGB8 -> PixelRGB8 -> PixelRGB8
-addp = mixWith (const f)
-  where
-    f x y = fromIntegral $
-      (0xff :: Pixel8) `min` (fromIntegral x + fromIntegral y)
-{-# INLINE addp #-}
-
--- | Crop a given image. If supplied coordinates are greater than size of
--- original image, image boundaries are used instead.
+scaleBilinear8And16
+  :: Int               -- ^ Desired width
+  -> Int               -- ^ Desired height
+  -> DynamicImage      -- ^ Original image
+  -> Either String DynamicImage
+                       -- ^ Scaled image
+scaleBilinear8And16 = Scaler.scaleBilinear
 
 crop :: Pixel a
   => Int               -- ^ Index (X axis) of first pixel to include

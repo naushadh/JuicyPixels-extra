@@ -29,6 +29,9 @@ library
   build-depends:      base              >= 4.7 && < 5
                     , JuicyPixels       >= 3.2.6.4 && < 3.3
   exposed-modules:    Codec.Picture.Extra
+  other-modules:      Codec.Picture.Extra.Scaler
+                    , Codec.Picture.Extra.Scaler8
+                    , Codec.Picture.Extra.Scaler16
   if flag(dev)
     ghc-options:      -Wall -Werror
   else
